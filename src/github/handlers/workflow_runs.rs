@@ -10,17 +10,18 @@ use std::env;
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
-pub struct PullRequestEvent {
+pub struct WorkflowRunEvent {
     pub action: String,
-    pub pull_request: PullRequest,
+    pub workflow_run: WorkflowRun,
     pub repository: Repository,
-    pub sender: Sender,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PullRequest {
+pub struct WorkflowRun {
     pub html_url: String,
-    pub title: String,
+    pub name: String,
+    pub status: Option<String>,
+    pub conclusion: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,16 +29,12 @@ pub struct Repository {
     pub full_name: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct Sender {
-    pub login: String,
-}
-
-pub async fn handle_pull_request_event(
+pub async fn handle_workflow_run_event(
     State(state): State<AppState>,
-    Json(payload): Json<PullRequestEvent>,
+    Json(payload): Json<WorkflowRunEvent>,
 ) -> Response {
-    if payload.action != "opened" {
+    // Only notify on completed workflow runs
+    if payload.action != "completed" {
         return StatusCode::OK.into_response();
     }
 
@@ -52,23 +49,18 @@ pub async fn handle_pull_request_event(
         }
     };
 
-    let channel_id: u64 = env::var("DISCORD_PR_CHANNEL_ID")
-        .expect("DISCORD_PR_CHANNEL_ID not set")
-        .parse()
-        .unwrap();
-
-    let role_id: u64 = env::var("DISCORD_DEV_ROLE_ID")
-        .expect("DISCORD_DEV_ROLE_ID not set")
+    let channel_id: u64 = env::var("DISCORD_WORKFLOW_CHANNEL_ID")
+        .expect("DISCORD_WORKFLOW_CHANNEL_ID not set")
         .parse()
         .unwrap();
 
     let message = format!(
-        "<@&{}> New PR in **{}** by `{}`:\n**{}**\n{}",
-        role_id,
+        "Workflow run **{}** in **{}** completed with status `{}` and result `{}`:\n{}",
+        payload.workflow_run.name,
         payload.repository.full_name,
-        payload.sender.login,
-        payload.pull_request.title,
-        payload.pull_request.html_url
+        payload.workflow_run.status.as_deref().unwrap_or("unknown"),
+        payload.workflow_run.conclusion.as_deref().unwrap_or("unknown"),
+        payload.workflow_run.html_url
     );
 
     let _ = ChannelId(channel_id)

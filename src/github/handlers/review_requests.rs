@@ -10,11 +10,12 @@ use std::env;
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
-pub struct PullRequestEvent {
+pub struct PullRequestReviewRequestedEvent {
     pub action: String,
     pub pull_request: PullRequest,
     pub repository: Repository,
-    pub sender: Sender,
+    pub requested_reviewer: Option<User>,
+    pub sender: User,
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,15 +30,21 @@ pub struct Repository {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Sender {
+pub struct User {
     pub login: String,
 }
 
-pub async fn handle_pull_request_event(
+/// Tries to map a GitHub username to a Discord mention via env var like GITHUB_NOTIFY_username
+fn discord_mention_for_github_user(username: &str) -> Option<String> {
+    let key = format!("GITHUB_NOTIFY_{}", username);
+    env::var(key).ok()
+}
+
+pub async fn handle_review_requested_event(
     State(state): State<AppState>,
-    Json(payload): Json<PullRequestEvent>,
+    Json(payload): Json<PullRequestReviewRequestedEvent>,
 ) -> Response {
-    if payload.action != "opened" {
+    if payload.action != "review_requested" {
         return StatusCode::OK.into_response();
     }
 
@@ -57,16 +64,21 @@ pub async fn handle_pull_request_event(
         .parse()
         .unwrap();
 
-    let role_id: u64 = env::var("DISCORD_DEV_ROLE_ID")
-        .expect("DISCORD_DEV_ROLE_ID not set")
-        .parse()
-        .unwrap();
+    let requester = payload.sender.login;
+    let reviewer_login = payload
+        .requested_reviewer
+        .as_ref()
+        .map(|r| r.login.clone())
+        .unwrap_or_else(|| "(unknown)".to_string());
+
+    let reviewer_display = discord_mention_for_github_user(&reviewer_login)
+        .unwrap_or_else(|| format!("`{}`", reviewer_login));
 
     let message = format!(
-        "<@&{}> New PR in **{}** by `{}`:\n**{}**\n{}",
-        role_id,
+        "`{}` requested a review from {} on PR in **{}**:\n**{}**\n{}",
+        requester,
+        reviewer_display,
         payload.repository.full_name,
-        payload.sender.login,
         payload.pull_request.title,
         payload.pull_request.html_url
     );
