@@ -74,27 +74,27 @@ macro_rules! shell_command {
     }};
 }
 
-pub async fn ff_clean(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "cd ~/fitch-fork/backend && source ~/.cargo/env && cargo make clean"], "Clean", command);
+pub async fn clean(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source ~/.cargo/env && cargo make clean"], "Clean", command);
 }
-pub async fn ff_fresh(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "cd ~/fitch-fork/backend && source ~/.cargo/env && cargo make fresh"], "Fresh", command);
+pub async fn fresh(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source ~/.cargo/env && cargo make fresh"], "Fresh", command);
 }
-pub async fn ff_migrate(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "cd ~/fitch-fork/backend && source ~/.cargo/env && cargo make migrate"], "Migrate", command);
+pub async fn migrate(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source ~/.cargo/env && cargo make migrate"], "Migrate", command);
 }
-pub async fn ff_restart_api(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["~/scripts/restart-api.sh"], "Restart API", command);
+pub async fn restart_api(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["/home/owca/scripts/restart-api.sh"], "Restart API", command);
 }
-pub async fn ff_start_api(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["~/scripts/start-api.sh"], "Start API", command);
+pub async fn start_api(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["/home/owca/scripts/start-api.sh"], "Start API", command);
 }
-pub async fn ff_stop_api(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["~/scripts/stop-api.sh"], "Stop API", command);
+pub async fn stop_api(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["/home/owca/scripts/stop-api.sh"], "Stop API", command);
 }
-pub async fn ff_tail_logs(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "tail -n 50 ~/logs/fitchfork.log"], "Tail Logs", command);
+pub async fn tail_logs(ctx: &Context, command: &ApplicationCommandInteraction) {
+    shell_command!(ctx, "bash", &["-c", "tail -n 50 /home/owca/logs/fitchfork.log"], "Tail Logs", command);
 }
-pub async fn ff_reboot(ctx: &Context, command: &ApplicationCommandInteraction) {
+pub async fn reboot(ctx: &Context, command: &ApplicationCommandInteraction) {
     shell_command!(ctx, "sudo", &["reboot"], "Reboot Server", command);
 }

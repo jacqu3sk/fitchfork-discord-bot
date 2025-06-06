@@ -10,9 +10,9 @@ use serenity::model::application::command::Command;
 use crate::AppState;
 use crate::commands::{
     uptime, restart_service,
-    ff_clean, ff_fresh, ff_migrate,
-    ff_restart_api, ff_start_api, ff_stop_api,
-    ff_tail_logs, ff_reboot,
+    clean, fresh, migrate,
+    restart_api, start_api, stop_api,
+    tail_logs, reboot,
 };
 use sysinfo::{System, SystemExt, CpuExt, DiskExt};
 
@@ -45,14 +45,14 @@ impl EventHandler for Handler {
                 "status" => handle_status(&ctx, &command).await,
                 "uptime" => uptime(&ctx, &command).await,
                 "restart" => restart_service(&ctx, &command).await,
-                "ff_clean" => ff_clean(&ctx, &command).await,
-                "ff_fresh" => ff_fresh(&ctx, &command).await,
-                "ff_migrate" => ff_migrate(&ctx, &command).await,
-                "ff_restart_api" => ff_restart_api(&ctx, &command).await,
-                "ff_start_api" => ff_start_api(&ctx, &command).await,
-                "ff_stop_api" => ff_stop_api(&ctx, &command).await,
-                "ff_tail_logs" => ff_tail_logs(&ctx, &command).await,
-                "ff_reboot" => ff_reboot(&ctx, &command).await,
+                "clean" => clean(&ctx, &command).await,
+                "fresh" => fresh(&ctx, &command).await,
+                "migrate" => migrate(&ctx, &command).await,
+                "restart_api" => restart_api(&ctx, &command).await,
+                "start_api" => start_api(&ctx, &command).await,
+                "stop_api" => stop_api(&ctx, &command).await,
+                "tail_logs" => tail_logs(&ctx, &command).await,
+                "reboot" => reboot(&ctx, &command).await,
                 _ => {}
             }
         }
@@ -88,14 +88,14 @@ impl EventHandler for Handler {
         }).await;
 
         for (name, description) in &[
-            ("ff_clean", "Run cargo make clean"),
-            ("ff_fresh", "Run cargo make fresh"),
-            ("ff_migrate", "Run cargo make migrate"),
-            ("ff_restart_api", "Restart the FitchFork API"),
-            ("ff_start_api", "Start the FitchFork API"),
-            ("ff_stop_api", "Stop the FitchFork API"),
-            ("ff_tail_logs", "Tail the FitchFork log file"),
-            ("ff_reboot", "Reboot the server"),
+            ("clean", "Run cargo make clean"),
+            ("fresh", "Run cargo make fresh"),
+            ("migrate", "Run cargo make migrate"),
+            ("restart_api", "Restart the FitchFork API"),
+            ("start_api", "Start the FitchFork API"),
+            ("stop_api", "Stop the FitchFork API"),
+            ("tail_logs", "Tail the FitchFork log file"),
+            ("reboot", "Reboot the server"),
         ] {
             let _ = Command::create_global_application_command(&ctx.http, |cmd| {
                 cmd.name(name).description(description)
