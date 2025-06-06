@@ -43,6 +43,7 @@ impl EventHandler for Handler {
         if let Interaction::ApplicationCommand(command) = interaction {
             match command.data.name.as_str() {
                 "status" => handle_status(&ctx, &command).await,
+                "health" => handle_health(&ctx, &command).await,
                 "uptime" => uptime(&ctx, &command).await,
                 "restart" => restart_service(&ctx, &command).await,
                 "clean" => clean(&ctx, &command).await,
@@ -70,6 +71,10 @@ impl EventHandler for Handler {
 
         let _ = Command::create_global_application_command(&ctx.http, |cmd| {
             cmd.name("status").description("Show system status (CPU, RAM, Disk)")
+        }).await;
+
+        let _ = Command::create_global_application_command(&ctx.http, |cmd| {
+            cmd.name("health").description("Simple health check to see if the bot is responsive")
         }).await;
 
         let _ = Command::create_global_application_command(&ctx.http, |cmd| {
@@ -140,6 +145,14 @@ async fn handle_status(ctx: &Context, command: &ApplicationCommandInteraction) {
     let _ = command
         .create_interaction_response(&ctx.http, |res| {
             res.interaction_response_data(|msg| msg.content(content))
+        })
+        .await;
+}
+
+pub async fn handle_health(ctx: &Context, command: &ApplicationCommandInteraction) {
+    let _ = command
+        .create_interaction_response(&ctx.http, |res| {
+            res.interaction_response_data(|msg| msg.content("✅ Bot is alive."))
         })
         .await;
 }
