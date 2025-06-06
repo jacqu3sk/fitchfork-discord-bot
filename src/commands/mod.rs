@@ -75,13 +75,13 @@ macro_rules! shell_command {
 }
 
 pub async fn clean(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source ~/.cargo/env && cargo make clean"], "Clean", command);
+    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source /home/owca/.cargo/env && cargo make clean"], "Clean", command);
 }
 pub async fn fresh(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source ~/.cargo/env && cargo make fresh"], "Fresh", command);
+    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source /home/owca/.cargo/env && cargo make fresh"], "Fresh", command);
 }
 pub async fn migrate(ctx: &Context, command: &ApplicationCommandInteraction) {
-    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source ~/.cargo/env && cargo make migrate"], "Migrate", command);
+    shell_command!(ctx, "bash", &["-c", "cd /home/owca/fitch-fork/backend && source /home/owca/.cargo/env && cargo make migrate"], "Migrate", command);
 }
 pub async fn restart_api(ctx: &Context, command: &ApplicationCommandInteraction) {
     shell_command!(ctx, "bash", &["/home/owca/scripts/restart-api.sh"], "Restart API", command);
