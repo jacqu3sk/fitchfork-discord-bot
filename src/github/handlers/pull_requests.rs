@@ -21,6 +21,14 @@ pub struct PullRequestEvent {
 pub struct PullRequest {
     pub html_url: String,
     pub title: String,
+    pub head: BranchRef, // source branch
+    pub base: BranchRef, // target branch
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BranchRef {
+    #[serde(rename = "ref")]
+    pub r#ref: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,11 +71,13 @@ pub async fn handle_pull_request_event(
         .unwrap();
 
     let message = format!(
-        "<@&{}> New PR in **{}** by `{}`:\n**{}**\n{}",
+        "<@&{}> New PR in **{}** by `{}`:\n**{}**\n`{}` → `{}`\n{}",
         role_id,
         payload.repository.full_name,
         payload.sender.login,
         payload.pull_request.title,
+        payload.pull_request.head.r#ref,
+        payload.pull_request.base.r#ref,
         payload.pull_request.html_url
     );
 
