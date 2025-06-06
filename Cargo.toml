@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serenity = { version = "0.11", features = ["framework", "standard_framework", "client", "gateway", "rustls_backend"] }
+serenity = { version = "0.11", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
 tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
 axum = "0.7"
 serde = { version = "1.0", features = ["derive"] }
