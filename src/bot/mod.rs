@@ -4,20 +4,38 @@ use serenity::{
     prelude::*,
     Client,
 };
-use serenity::model::application::interaction::Interaction;
-use serenity::model::application::interaction::application_command::ApplicationCommandInteraction;
+use serenity::model::application::interaction::{Interaction, application_command::ApplicationCommandInteraction};
 use serenity::model::application::command::Command;
 
-use sysinfo::{System, SystemExt, CpuExt, DiskExt};
-
+use crate::AppState;
 use crate::commands::{
     uptime, restart_service,
     ff_clean, ff_fresh, ff_migrate,
     ff_restart_api, ff_start_api, ff_stop_api,
     ff_tail_logs, ff_reboot,
 };
+use sysinfo::{System, SystemExt, CpuExt, DiskExt};
 
-struct Handler;
+pub async fn start(token: String, state: AppState) {
+    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+
+    let handler = Handler {
+        shared_state: state.clone(),
+    };
+
+    let mut client = Client::builder(&token, intents)
+        .event_handler(handler)
+        .await
+        .expect("Error creating client");
+
+    if let Err(why) = client.start().await {
+        println!("Client error: {:?}", why);
+    }
+}
+
+struct Handler {
+    shared_state: AppState,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
@@ -42,6 +60,13 @@ impl EventHandler for Handler {
 
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("{} is connected!", ready.user.name);
+
+        // clone before lock+set to avoid async Send issues
+        let ctx_clone = ctx.clone();
+        {
+            let mut lock = self.shared_state.discord_ctx.lock().unwrap();
+            *lock = Some(ctx_clone);
+        }
 
         let _ = Command::create_global_application_command(&ctx.http, |cmd| {
             cmd.name("status").description("Show system status (CPU, RAM, Disk)")
@@ -76,19 +101,6 @@ impl EventHandler for Handler {
                 cmd.name(name).description(description)
             }).await;
         }
-    }
-}
-
-pub async fn start(token: String) {
-    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
-
-    let mut client = Client::builder(&token, intents)
-        .event_handler(Handler)
-        .await
-        .expect("Error creating client");
-
-    if let Err(why) = client.start().await {
-        println!("Client error: {:?}", why);
     }
 }
 
