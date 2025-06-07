@@ -1,7 +1,9 @@
 //! Provides system status utilities and slash command handlers for `/status` and `/health`.
 //!
-//! Includes a background task that posts live system metrics (CPU, RAM, disk usage)
-//! to a dedicated Discord channel on a regular interval.
+//! Includes:
+//! - A reusable function to format system metrics (RAM, CPU, disks)
+//! - Slash command handlers (`/status`, `/health`)
+//! - A background task that posts or edits a single status message on an interval.
 
 use serenity::{
     model::application::interaction::application_command::ApplicationCommandInteraction,
@@ -14,13 +16,10 @@ use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 
 /// Constructs a human-readable system status message.
 ///
-/// This includes:
-/// - RAM usage (percentage and MiB)
-/// - Average CPU usage and per-core breakdown
-/// - Disk usage for each mounted disk (used/total GB and percentage)
-///
-/// This function is used both for the `/status` command and for
-/// the automated background status updates.
+/// Includes:
+/// - RAM usage (percent + MiB)
+/// - Average CPU usage and per-core details
+/// - Disk usage by mount path (used/total GB and %)
 pub fn build_status_message() -> String {
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -70,8 +69,7 @@ pub fn build_status_message() -> String {
 
 /// Slash command handler for `/status`.
 ///
-/// This command fetches live system metrics and sends them as a one-time response
-/// to the user who invoked the command.
+/// Replies to the command invoker with the current system resource usage.
 pub async fn handle_status(ctx: &Context, command: &ApplicationCommandInteraction) {
     let content = build_status_message();
 
@@ -84,7 +82,7 @@ pub async fn handle_status(ctx: &Context, command: &ApplicationCommandInteractio
 
 /// Slash command handler for `/health`.
 ///
-/// Simply confirms that the bot is responsive and connected to Discord.
+/// Confirms the bot is responsive and connected.
 pub async fn handle_health(ctx: &Context, command: &ApplicationCommandInteraction) {
     let _ = command
         .create_interaction_response(&ctx.http, |res| {
@@ -93,18 +91,15 @@ pub async fn handle_health(ctx: &Context, command: &ApplicationCommandInteractio
         .await;
 }
 
-/// Spawns a background task that posts a fresh system status message at regular intervals.
+/// Spawns a background task that posts or edits a pinned status message in a Discord channel.
 ///
-/// The task performs the following loop:
-/// 1. Deletes the last 100 messages from the configured status channel
-/// 2. Posts a new status message from `build_status_message()`
-/// 3. Waits for the configured duration before repeating
+/// Behavior:
+/// - On first run, posts a new status message and pins it.
+/// - On subsequent runs, **edits that message** with fresh data.
 ///
 /// Environment Variables:
-/// - `DISCORD_STATUS_CHANNEL_ID`: ID of the target channel
-/// - `STATUS_UPDATE_INTERVAL_SECS`: Interval between updates in seconds (default: 600)
-///
-/// This ensures the channel always shows the most recent status clearly, with no clutter.
+/// - `DISCORD_STATUS_CHANNEL_ID`: Channel to post the status
+/// - `STATUS_UPDATE_INTERVAL_SECS`: Seconds between updates (default: 600)
 pub async fn start_status_loop(ctx: Context) {
     let channel_id: u64 = env::var("DISCORD_STATUS_CHANNEL_ID")
         .expect("DISCORD_STATUS_CHANNEL_ID must be set")
@@ -117,27 +112,38 @@ pub async fn start_status_loop(ctx: Context) {
         .unwrap_or(600);
 
     tokio::spawn(async move {
-        loop {
-            let channel = ChannelId(channel_id);
-            let http = &ctx.http;
+        let channel = ChannelId(channel_id);
+        let http = &ctx.http;
+        let mut status_message_id: Option<MessageId> = None;
 
-            // Delete previous messages in the status channel
-            match channel.messages(http, |m| m.limit(100)).await {
-                Ok(messages) => {
-                    for msg in messages {
-                        let _ = channel.delete_message(http, msg.id).await;
+        loop {
+            let content = build_status_message();
+
+            match status_message_id {
+                Some(message_id) => {
+                    // Try to edit the previously sent message
+                    if let Err(e) = channel
+                        .edit_message(http, message_id, |m| m.content(content.clone()))
+                        .await
+                    {
+                        eprintln!("Failed to edit status message: {:?}", e);
+                        status_message_id = None; // fallback to re-sending
                     }
                 }
-                Err(e) => {
-                    eprintln!("Failed to delete status messages: {:?}", e);
+                None => {
+                    // Send a new message and pin it
+                    match channel.send_message(http, |m| m.content(content)).await {
+                        Ok(msg) => {
+                            status_message_id = Some(msg.id);
+                            let _ = msg.pin(http).await;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to send status message: {:?}", e);
+                        }
+                    }
                 }
             }
 
-            // Send a fresh status update
-            let message = build_status_message();
-            let _ = channel.send_message(http, |m| m.content(message)).await;
-
-            // Wait for the configured interval before repeating
             sleep(Duration::from_secs(interval_secs)).await;
         }
     });
