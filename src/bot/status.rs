@@ -25,7 +25,15 @@ const STATUS_MSG_PATH: &str = "status_message_id.txt";
 /// - Disk usage by mount point (used/total GB + percent)
 pub fn build_status_message() -> String {
     let mut sys = System::new_all();
+
+    // Initial refresh to populate data
     sys.refresh_all();
+
+    // Wait a short duration to allow CPU usage to accumulate
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Refresh again to get real CPU usage deltas
+    sys.refresh_cpu();
 
     let cpu_count = sys.cpus().len();
     let avg_cpu = sys
