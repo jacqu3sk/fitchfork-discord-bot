@@ -1,21 +1,38 @@
+//! Main bot module.
+//!
+//! This module defines the Discord bot's startup routine, event handlers, and
+//! command registration logic. It initializes the bot, listens for interactions,
+//! manages shared state, and spawns background workers like the system status loop.
+
 use serenity::{
     async_trait,
     model::prelude::*,
+    model::application::interaction::{Interaction},
+    model::application::command::Command,
     prelude::*,
     Client,
 };
-use serenity::model::application::interaction::{Interaction, application_command::ApplicationCommandInteraction};
-use serenity::model::application::command::Command;
 
 use crate::AppState;
 use crate::commands::{
-    uptime, restart_service,
-    clean, fresh, migrate,
-    restart_api, start_api, stop_api,
-    tail_logs, reboot,
+    clean, fresh, migrate, reboot,
+    restart_api, restart_service,
+    start_api, stop_api,
+    tail_logs, uptime,
 };
-use sysinfo::{System, SystemExt, CpuExt, DiskExt};
 
+mod status;
+use status::{handle_health, handle_status, start_status_loop};
+
+/// Starts the Discord bot client.
+///
+/// This function initializes the bot with the given token and app state,
+/// sets up the event handler, and connects to the Discord gateway.
+/// Any runtime errors will be logged to stderr.
+///
+/// # Arguments
+/// - `token`: Discord bot token.
+/// - `state`: Shared application state used across modules.
 pub async fn start(token: String, state: AppState) {
     let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
@@ -26,19 +43,25 @@ pub async fn start(token: String, state: AppState) {
     let mut client = Client::builder(&token, intents)
         .event_handler(handler)
         .await
-        .expect("Error creating client");
+        .expect("Error creating Discord client");
 
     if let Err(why) = client.start().await {
-        println!("Client error: {:?}", why);
+        eprintln!("Client error: {:?}", why);
     }
 }
 
+/// Serenity event handler for managing Discord gateway events.
+///
+/// This handler processes slash command interactions and takes action when the bot becomes ready.
 struct Handler {
     shared_state: AppState,
 }
 
 #[async_trait]
 impl EventHandler for Handler {
+    /// Handles all incoming application command interactions (slash commands).
+    ///
+    /// Routes commands to the appropriate async handler function.
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(command) = interaction {
             match command.data.name.as_str() {
@@ -59,39 +82,37 @@ impl EventHandler for Handler {
         }
     }
 
+    /// Called when the bot is fully connected and ready.
+    ///
+    /// - Stores the Discord context globally so other modules (like system commands) can access it.
+    /// - Launches a background status update loop that periodically posts system metrics.
+    /// - Registers all slash commands globally with Discord.
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("{} is connected!", ready.user.name);
 
-        // clone before lock+set to avoid async Send issues
-        let ctx_clone = ctx.clone();
+        // Store context for later use in background tasks or manual command sending.
         {
             let mut lock = self.shared_state.discord_ctx.lock().unwrap();
-            *lock = Some(ctx_clone);
+            *lock = Some(ctx.clone());
         }
 
-        let _ = Command::create_global_application_command(&ctx.http, |cmd| {
-            cmd.name("status").description("Show system status (CPU, RAM, Disk)")
-        }).await;
+        // Start the repeating system status updater task in a separate async thread.
+        start_status_loop(ctx.clone()).await;
 
-        let _ = Command::create_global_application_command(&ctx.http, |cmd| {
-            cmd.name("health").description("Simple health check to see if the bot is responsive")
-        }).await;
+        // Register slash commands available to users
+        register_command(&ctx, "status", "Show system status (CPU, RAM, Disk)").await;
+        register_command(&ctx, "health", "Simple health check to see if the bot is responsive").await;
+        register_command(&ctx, "uptime", "Show system uptime").await;
 
-        let _ = Command::create_global_application_command(&ctx.http, |cmd| {
-            cmd.name("uptime").description("Show system uptime")
-        }).await;
+        register_command_with_option(
+            &ctx,
+            "restart",
+            "Restart a systemd service",
+            "service",
+            "The name of the systemd service to restart"
+        ).await;
 
-        let _ = Command::create_global_application_command(&ctx.http, |cmd| {
-            cmd.name("restart")
-                .description("Restart a systemd service")
-                .create_option(|opt| {
-                    opt.name("service")
-                        .description("The name of the systemd service to restart")
-                        .kind(serenity::model::application::command::CommandOptionType::String)
-                        .required(true)
-                })
-        }).await;
-
+        // Register additional predefined bot actions
         for (name, description) in &[
             ("clean", "Run cargo make clean"),
             ("fresh", "Run cargo make fresh"),
@@ -102,57 +123,50 @@ impl EventHandler for Handler {
             ("tail_logs", "Tail the FitchFork log file"),
             ("reboot", "Reboot the server"),
         ] {
-            let _ = Command::create_global_application_command(&ctx.http, |cmd| {
-                cmd.name(name).description(description)
-            }).await;
+            register_command(&ctx, name, description).await;
         }
     }
 }
 
-async fn handle_status(ctx: &Context, command: &ApplicationCommandInteraction) {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let cpu_count = sys.cpus().len();
-    let avg_cpu = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32;
-    let cpu_details = sys.cpus().iter().enumerate().map(|(i, c)| {
-        format!("Core {}: {:.1}%", i, c.cpu_usage())
-    }).collect::<Vec<_>>().join("\n");
-    let ram_used = sys.used_memory() / 1024;
-    let ram_total = sys.total_memory() / 1024;
-    let ram_percent = (ram_used as f32 / ram_total as f32) * 100.0;
-    let disk_info = sys.disks().iter().map(|d| {
-        let name = d.name().to_string_lossy();
-        let mount = d.mount_point().display();
-        let used = d.total_space() - d.available_space();
-        let used_gb = used as f64 / 1e9;
-        let total_gb = d.total_space() as f64 / 1e9;
-        let percent = (used as f64 / d.total_space() as f64) * 100.0;
-        format!(
-            "**{}** (`{}`): `{:.1} GB / {:.1} GB` ({:.1}%)",
-            name, mount, used_gb, total_gb, percent
-        )
-    }).collect::<Vec<_>>().join("\n");
-    let content = format!(
-        "**System Status**\n\
-        **RAM Usage:** `{:.1}%` (`{} MiB / {} MiB`)\n\
-        **CPU Usage:** `{:.1}% average` over {} cores\n\
-        ```\n{}\n```\n\
-        **Disks:**\n{}",
-        ram_percent, ram_used, ram_total,
-        avg_cpu, cpu_count, cpu_details,
-        disk_info
-    );
-    let _ = command
-        .create_interaction_response(&ctx.http, |res| {
-            res.interaction_response_data(|msg| msg.content(content))
-        })
-        .await;
+/// Registers a simple slash command with no parameters.
+///
+/// # Arguments
+/// - `ctx`: Discord context to register the command against.
+/// - `name`: Name of the command (e.g., "health").
+/// - `description`: Description shown in the Discord UI.
+async fn register_command(ctx: &Context, name: &str, description: &str) {
+    let _ = Command::create_global_application_command(&ctx.http, |cmd| {
+        cmd.name(name).description(description)
+    })
+    .await;
 }
 
-pub async fn handle_health(ctx: &Context, command: &ApplicationCommandInteraction) {
-    let _ = command
-        .create_interaction_response(&ctx.http, |res| {
-            res.interaction_response_data(|msg| msg.content("✅ Bot is alive."))
-        })
-        .await;
+/// Registers a slash command that requires a string parameter.
+///
+/// Useful for commands like `/restart` that accept a service name.
+///
+/// # Arguments
+/// - `ctx`: Discord context.
+/// - `name`: Name of the command.
+/// - `description`: Overall command description.
+/// - `option`: Name of the parameter (e.g., "service").
+/// - `option_desc`: Description of the parameter shown to the user.
+async fn register_command_with_option(
+    ctx: &Context,
+    name: &str,
+    description: &str,
+    option: &str,
+    option_desc: &str,
+) {
+    let _ = Command::create_global_application_command(&ctx.http, |cmd| {
+        cmd.name(name)
+            .description(description)
+            .create_option(|opt| {
+                opt.name(option)
+                    .description(option_desc)
+                    .kind(serenity::model::application::command::CommandOptionType::String)
+                    .required(true)
+            })
+    })
+    .await;
 }
