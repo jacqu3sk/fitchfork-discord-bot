@@ -3,23 +3,26 @@
 //! Includes:
 //! - A reusable function to format system metrics (RAM, CPU, disks)
 //! - Slash command handlers (`/status`, `/health`)
-//! - A background task that posts or edits a single status message on an interval.
+//! - A background task that posts or edits a pinned status message on an interval,
+//!   persisting the message ID to survive bot restarts.
 
 use serenity::{
     model::application::interaction::application_command::ApplicationCommandInteraction,
     model::prelude::*,
     prelude::*,
 };
-use std::{env, time::Duration};
+use std::{env, fs, time::Duration};
 use tokio::time::sleep;
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 
-/// Constructs a human-readable system status message.
+const STATUS_MSG_PATH: &str = "status_message_id.txt";
+
+/// Builds a formatted system status message string.
 ///
 /// Includes:
 /// - RAM usage (percent + MiB)
-/// - Average CPU usage and per-core details
-/// - Disk usage by mount path (used/total GB and %)
+/// - Average CPU usage and per-core breakdown
+/// - Disk usage by mount point (used/total GB + percent)
 pub fn build_status_message() -> String {
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -91,11 +94,24 @@ pub async fn handle_health(ctx: &Context, command: &ApplicationCommandInteractio
         .await;
 }
 
+/// Attempts to load a previously stored message ID from disk.
+fn load_status_message_id() -> Option<MessageId> {
+    fs::read_to_string(STATUS_MSG_PATH)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(MessageId)
+}
+
+/// Saves the given message ID to disk for future use.
+fn save_status_message_id(id: MessageId) {
+    let _ = fs::write(STATUS_MSG_PATH, id.0.to_string());
+}
+
 /// Spawns a background task that posts or edits a pinned status message in a Discord channel.
 ///
 /// Behavior:
-/// - On first run, posts a new status message and pins it.
-/// - On subsequent runs, **edits that message** with fresh data.
+/// - On first run, loads or creates the status message and pins it.
+/// - On each interval, edits the existing message (or replaces it if missing).
 ///
 /// Environment Variables:
 /// - `DISCORD_STATUS_CHANNEL_ID`: Channel to post the status
@@ -114,31 +130,30 @@ pub async fn start_status_loop(ctx: Context) {
     tokio::spawn(async move {
         let channel = ChannelId(channel_id);
         let http = &ctx.http;
-        let mut status_message_id: Option<MessageId> = None;
+        let mut status_message_id = load_status_message_id();
 
         loop {
             let content = build_status_message();
 
             match status_message_id {
                 Some(message_id) => {
-                    // Try to edit the previously sent message
                     if let Err(e) = channel
                         .edit_message(http, message_id, |m| m.content(content.clone()))
                         .await
                     {
-                        eprintln!("Failed to edit status message: {:?}", e);
-                        status_message_id = None; // fallback to re-sending
+                        eprintln!("Failed to edit status message: {:?} — will resend", e);
+                        status_message_id = None;
                     }
                 }
                 None => {
-                    // Send a new message and pin it
-                    match channel.send_message(http, |m| m.content(content)).await {
+                    match channel.send_message(http, |m| m.content(content.clone())).await {
                         Ok(msg) => {
                             status_message_id = Some(msg.id);
+                            save_status_message_id(msg.id);
                             let _ = msg.pin(http).await;
                         }
                         Err(e) => {
-                            eprintln!("Failed to send status message: {:?}", e);
+                            eprintln!("Failed to send new status message: {:?}", e);
                         }
                     }
                 }
