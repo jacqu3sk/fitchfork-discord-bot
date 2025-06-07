@@ -19,20 +19,17 @@ const STATUS_MSG_PATH: &str = "status_message_id.txt";
 
 /// Builds a formatted system status message string.
 ///
+/// If `update_interval_secs` is Some, includes an "updates every Xs" line.
+///
 /// Includes:
 /// - RAM usage (percent + MiB)
 /// - Average CPU usage and per-core breakdown
 /// - Disk usage by mount point (used/total GB + percent)
-pub fn build_status_message() -> String {
+pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
     let mut sys = System::new_all();
 
-    // Initial refresh to populate data
     sys.refresh_all();
-
-    // Wait a short duration to allow CPU usage to accumulate
     std::thread::sleep(Duration::from_millis(500));
-
-    // Refresh again to get real CPU usage deltas
     sys.refresh_cpu();
 
     let cpu_count = sys.cpus().len();
@@ -73,9 +70,13 @@ pub fn build_status_message() -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let interval_str = update_interval_secs
+        .map(|s| format!(" (updates every {}s)", s))
+        .unwrap_or_default();
+
     format!(
         "```\n\
-System Status
+System Status{interval_str}
 
 RAM Usage:  {:.1}% ({} MiB / {} MiB)
 CPU Usage:  {:.1}% average over {} cores
@@ -90,7 +91,8 @@ Disks:
         avg_cpu,
         cpu_count,
         cpu_details,
-        disk_info
+        disk_info,
+        interval_str = interval_str
     )
 }
 
@@ -98,7 +100,7 @@ Disks:
 ///
 /// Replies to the command invoker with the current system resource usage.
 pub async fn handle_status(ctx: &Context, command: &ApplicationCommandInteraction) {
-    let content = build_status_message();
+    let content = build_status_message(None);
 
     let _ = command
         .create_interaction_response(&ctx.http, |res| {
@@ -157,7 +159,7 @@ pub async fn start_status_loop(ctx: Context) {
         let mut status_message_id = load_status_message_id();
 
         loop {
-            let content = build_status_message();
+            let content = build_status_message(Some(interval_secs));
 
             match status_message_id {
                 Some(message_id) => {
