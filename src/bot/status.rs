@@ -58,7 +58,7 @@ pub fn build_status_message() -> String {
             let total_gb = d.total_space() as f64 / 1e9;
             let percent = (used as f64 / d.total_space() as f64) * 100.0;
             format!(
-                "**• {}** (`{}`): `{:.1} GB / {:.1} GB` ({:.1}%)",
+                "- {} ({}) = {:.1} GB / {:.1} GB ({:.1}%)",
                 name, mount, used_gb, total_gb, percent
             )
         })
@@ -66,13 +66,16 @@ pub fn build_status_message() -> String {
         .join("\n");
 
     format!(
-        "**━━━━━━━━━━━━━━━━━━━**\n\
-         **📊 System Status**\n\
-         **━━━━━━━━━━━━━━━━━━━**\n\n\
-         **🧠 RAM Usage:** `{:.1}%` (`{} MiB / {} MiB`)\n\
-         **🖥️ CPU Usage:** `{:.1}% average` over `{}` cores\n\
-         ```\n{}\n```\n\
-         **💾 Disks:**\n{}",
+        "```\n\
+System Status
+
+RAM Usage:  {:.1}% ({} MiB / {} MiB)
+CPU Usage:  {:.1}% average over {} cores
+{}
+
+Disks:
+{}
+```",
         ram_percent,
         ram_used,
         ram_total,
