@@ -13,7 +13,7 @@ use serenity::{
 };
 use std::{env, fs, time::Duration};
 use tokio::time::sleep;
-use sysinfo::{CpuExt, DiskExt, System, SystemExt};
+use sysinfo::{CpuExt, DiskExt, System, SystemExt, ComponentExt};
 
 const STATUS_MSG_PATH: &str = "status_message_id.txt";
 
@@ -32,6 +32,7 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
     std::thread::sleep(Duration::from_millis(500));
     sys.refresh_cpu();
 
+    // === CPU Load ===
     let cpu_count = sys.cpus().len();
     let avg_cpu = sys
         .cpus()
@@ -48,10 +49,12 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    // === RAM ===
     let ram_used = sys.used_memory() / 1024;
     let ram_total = sys.total_memory() / 1024;
     let ram_percent = (ram_used as f32 / ram_total as f32) * 100.0;
 
+    // === Disks ===
     let disk_info = sys
         .disks()
         .iter()
@@ -70,6 +73,14 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    // === CPU Temperature (first valid sensor) ===
+    let cpu_temp = sys
+        .components()
+        .iter()
+        .find(|c| c.label().to_lowercase().contains("cpu") || c.label().is_empty())
+        .map(|c| format!("{:.1}°C", c.temperature()))
+        .unwrap_or_else(|| "N/A".to_string());
+
     let interval_str = update_interval_secs
         .map(|s| format!(" (updates every {}s)", s))
         .unwrap_or_default();
@@ -80,6 +91,8 @@ System Status{interval_str}
 
 RAM Usage:  {:.1}% ({} MiB / {} MiB)
 CPU Usage:  {:.1}% average over {} cores
+CPU Temp:   {}
+
 {}
 
 Disks:
@@ -90,6 +103,7 @@ Disks:
         ram_total,
         avg_cpu,
         cpu_count,
+        cpu_temp,
         cpu_details,
         disk_info,
         interval_str = interval_str
