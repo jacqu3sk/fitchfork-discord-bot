@@ -59,8 +59,8 @@ pub async fn handle_review_requested_event(
         }
     };
 
-    let channel_id: u64 = env::var("DISCORD_PR_CHANNEL_ID")
-        .expect("DISCORD_PR_CHANNEL_ID not set")
+    let channel_id: u64 = env::var("DISCORD_REVIEW_CHANNEL_ID")
+        .expect("DISCORD_REVIEW_CHANNEL_ID not set")
         .parse()
         .unwrap();
 
