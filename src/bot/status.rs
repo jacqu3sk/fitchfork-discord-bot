@@ -28,13 +28,18 @@ pub fn build_status_message() -> String {
     sys.refresh_all();
 
     let cpu_count = sys.cpus().len();
-    let avg_cpu = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32;
+    let avg_cpu = sys
+        .cpus()
+        .iter()
+        .map(|c| c.cpu_usage())
+        .sum::<f32>()
+        / cpu_count as f32;
 
     let cpu_details = sys
         .cpus()
         .iter()
         .enumerate()
-        .map(|(i, c)| format!("Core {}: {:.1}%", i, c.cpu_usage()))
+        .map(|(i, c)| format!("Core {:>2}: {:>5.1}%", i, c.cpu_usage()))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -53,7 +58,7 @@ pub fn build_status_message() -> String {
             let total_gb = d.total_space() as f64 / 1e9;
             let percent = (used as f64 / d.total_space() as f64) * 100.0;
             format!(
-                "**{}** (`{}`): `{:.1} GB / {:.1} GB` ({:.1}%)",
+                "**• {}** (`{}`): `{:.1} GB / {:.1} GB` ({:.1}%)",
                 name, mount, used_gb, total_gb, percent
             )
         })
@@ -61,12 +66,20 @@ pub fn build_status_message() -> String {
         .join("\n");
 
     format!(
-        "**System Status**\n\
-         **RAM Usage:** `{:.1}%` (`{} MiB / {} MiB`)\n\
-         **CPU Usage:** `{:.1}% average` over {} cores\n\
+        "**━━━━━━━━━━━━━━━━━━━**\n\
+         **📊 System Status**\n\
+         **━━━━━━━━━━━━━━━━━━━**\n\n\
+         **🧠 RAM Usage:** `{:.1}%` (`{} MiB / {} MiB`)\n\
+         **🖥️ CPU Usage:** `{:.1}% average` over `{}` cores\n\
          ```\n{}\n```\n\
-         **Disks:**\n{}",
-        ram_percent, ram_used, ram_total, avg_cpu, cpu_count, cpu_details, disk_info
+         **💾 Disks:**\n{}",
+        ram_percent,
+        ram_used,
+        ram_total,
+        avg_cpu,
+        cpu_count,
+        cpu_details,
+        disk_info
     )
 }
 
