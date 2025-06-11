@@ -172,6 +172,22 @@ pub async fn start_status_loop(ctx: Context) {
         let http = &ctx.http;
         let mut status_message_id = load_status_message_id();
 
+        // Check if the saved message still exists
+        if let Some(mid) = status_message_id {
+            match channel.message(http, mid).await {
+                Ok(_) => { /* ok */ }
+                Err(_) => {
+                    status_message_id = None;
+                    // Optionally clear all messages if the message is missing
+                    if let Ok(msgs) = channel.messages(http, |f| f.limit(100)).await {
+                        for msg in msgs {
+                            let _ = channel.delete_message(http, msg.id).await;
+                        }
+                    }
+                }
+            }
+        }
+
         loop {
             let content = build_status_message(Some(interval_secs));
 
@@ -186,6 +202,14 @@ pub async fn start_status_loop(ctx: Context) {
                     }
                 }
                 None => {
+                    // Unpin all existing messages
+                    if let Ok(pinned) = channel.pins(http).await {
+                        for msg in pinned {
+                            let _ = msg.unpin(http).await;
+                        }
+                    }
+
+                    // Send new status message
                     match channel.send_message(http, |m| m.content(content.clone())).await {
                         Ok(msg) => {
                             status_message_id = Some(msg.id);
