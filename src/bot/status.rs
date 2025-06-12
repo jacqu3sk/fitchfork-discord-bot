@@ -14,6 +14,7 @@ use serenity::{
 use std::{env, fs, time::Duration};
 use tokio::time::sleep;
 use sysinfo::{CpuExt, DiskExt, System, SystemExt, ComponentExt};
+use chrono::Local;
 
 const STATUS_MSG_PATH: &str = "status_message_id.txt";
 
@@ -81,6 +82,9 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
         .map(|c| format!("{:.1}°C", c.temperature()))
         .unwrap_or_else(|| "N/A".to_string());
 
+    // === Timestamp ===
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
     let interval_str = update_interval_secs
         .map(|s| format!(" (updates every {}s)", s))
         .unwrap_or_default();
@@ -88,6 +92,8 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
     format!(
         "```\n\
 System Status{interval_str}
+
+Last Updated: {timestamp}
 
 RAM Usage:  {:.1}% ({} MiB / {} MiB)
 CPU Usage:  {:.1}% average over {} cores
@@ -106,7 +112,8 @@ Disks:
         cpu_temp,
         cpu_details,
         disk_info,
-        interval_str = interval_str
+        interval_str = interval_str,
+        timestamp = timestamp
     )
 }
 
@@ -172,16 +179,35 @@ pub async fn start_status_loop(ctx: Context) {
         let http = &ctx.http;
         let mut status_message_id = load_status_message_id();
 
-        // Check if the saved message still exists
+        // Validate the saved message ID
         if let Some(mid) = status_message_id {
             match channel.message(http, mid).await {
-                Ok(_) => { /* ok */ }
+                Ok(_) => { /* OK */ }
                 Err(_) => {
                     status_message_id = None;
-                    // Optionally clear all messages if the message is missing
+                    let _ = fs::remove_file(STATUS_MSG_PATH);
+
+                    // Clean up messages (optional)
                     if let Ok(msgs) = channel.messages(http, |f| f.limit(100)).await {
                         for msg in msgs {
                             let _ = channel.delete_message(http, msg.id).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no valid message ID, check pinned messages from self
+        if status_message_id.is_none() {
+            if let Ok(bot_user) = http.get_current_user().await {
+                if let Ok(pins) = channel.pins(http).await {
+                    for msg in &pins {
+                        if msg.author.id == bot_user.id
+                            && msg.content.contains("System Status")
+                        {
+                            status_message_id = Some(msg.id);
+                            save_status_message_id(msg.id);
+                            break;
                         }
                     }
                 }
@@ -199,17 +225,21 @@ pub async fn start_status_loop(ctx: Context) {
                     {
                         eprintln!("Failed to edit status message: {:?} — will resend", e);
                         status_message_id = None;
+                        let _ = fs::remove_file(STATUS_MSG_PATH);
                     }
                 }
                 None => {
-                    // Unpin all existing messages
-                    if let Ok(pinned) = channel.pins(http).await {
-                        for msg in pinned {
-                            let _ = msg.unpin(http).await;
+                    // Unpin all previous messages from self
+                    if let Ok(bot_user) = http.get_current_user().await {
+                        if let Ok(pinned) = channel.pins(http).await {
+                            for msg in pinned {
+                                if msg.author.id == bot_user.id {
+                                    let _ = msg.unpin(http).await;
+                                }
+                            }
                         }
                     }
 
-                    // Send new status message
                     match channel.send_message(http, |m| m.content(content.clone())).await {
                         Ok(msg) => {
                             status_message_id = Some(msg.id);
