@@ -82,6 +82,13 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
         .map(|c| format!("{:.1}°C", c.temperature()))
         .unwrap_or_else(|| "N/A".to_string());
 
+    // === Uptime ===
+    let uptime_secs = sys.uptime();
+    let days = uptime_secs / 86400;
+    let hours = (uptime_secs % 86400) / 3600;
+    let minutes = (uptime_secs % 3600) / 60;
+    let uptime_str = format!("{}d {}h {}m", days, hours, minutes);
+
     // === Timestamp ===
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -94,6 +101,7 @@ pub fn build_status_message(update_interval_secs: Option<u64>) -> String {
 System Status{interval_str}
 
 Last Updated: {timestamp}
+System Uptime: {uptime_str}
 
 RAM Usage:  {:.1}% ({} MiB / {} MiB)
 CPU Usage:  {:.1}% average over {} cores
@@ -113,7 +121,8 @@ Disks:
         cpu_details,
         disk_info,
         interval_str = interval_str,
-        timestamp = timestamp
+        timestamp = timestamp,
+        uptime_str = uptime_str
     )
 }
 
