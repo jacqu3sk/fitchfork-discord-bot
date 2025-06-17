@@ -362,6 +362,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "hyper 0.14.32",
+ "once_cell",
  "serde",
  "serde_json",
  "serenity",

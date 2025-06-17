@@ -15,8 +15,12 @@ use std::{env, fs, time::Duration};
 use tokio::time::sleep;
 use sysinfo::{CpuExt, DiskExt, System, SystemExt, ComponentExt};
 use chrono::Local;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 
 const STATUS_MSG_PATH: &str = "status_message_id.txt";
+static STATUS_LOOP_STARTED: AtomicBool = AtomicBool::new(false);
+
 
 /// Builds a formatted system status message string.
 ///
@@ -173,6 +177,11 @@ fn save_status_message_id(id: MessageId) {
 /// - `DISCORD_STATUS_CHANNEL_ID`: Channel to post the status
 /// - `STATUS_UPDATE_INTERVAL_SECS`: Seconds between updates (default: 600)
 pub async fn start_status_loop(ctx: Context) {
+    if STATUS_LOOP_STARTED.swap(true, Ordering::SeqCst) {
+        println!("Status loop already started, skipping.");
+        return;
+    }
+
     let channel_id: u64 = env::var("DISCORD_STATUS_CHANNEL_ID")
         .expect("DISCORD_STATUS_CHANNEL_ID must be set")
         .parse()
@@ -188,31 +197,24 @@ pub async fn start_status_loop(ctx: Context) {
         let http = &ctx.http;
         let mut status_message_id = load_status_message_id();
 
-        // Validate the saved message ID
+        // Validate saved message ID
         if let Some(mid) = status_message_id {
             match channel.message(http, mid).await {
-                Ok(_) => { /* OK */ }
+                Ok(_) => { /* Message is valid */ }
                 Err(_) => {
                     status_message_id = None;
                     let _ = fs::remove_file(STATUS_MSG_PATH);
-
-                    // Clean up messages (optional)
-                    if let Ok(msgs) = channel.messages(http, |f| f.limit(100)).await {
-                        for msg in msgs {
-                            let _ = channel.delete_message(http, msg.id).await;
-                        }
-                    }
                 }
             }
         }
 
-        // If no valid message ID, check pinned messages from self
+        // Search for an existing pinned status message from the bot
         if status_message_id.is_none() {
             if let Ok(bot_user) = http.get_current_user().await {
                 if let Ok(pins) = channel.pins(http).await {
                     for msg in &pins {
                         if msg.author.id == bot_user.id
-                            && msg.content.contains("System Status")
+                            && msg.content.starts_with("```\nSystem Status")
                         {
                             status_message_id = Some(msg.id);
                             save_status_message_id(msg.id);
@@ -227,21 +229,22 @@ pub async fn start_status_loop(ctx: Context) {
             let content = build_status_message(Some(interval_secs));
 
             match status_message_id {
-                Some(message_id) => {
-                    if let Err(e) = channel
-                        .edit_message(http, message_id, |m| m.content(content.clone()))
-                        .await
-                    {
-                        eprintln!("Failed to edit status message: {:?} — will resend", e);
-                        status_message_id = None;
-                        let _ = fs::remove_file(STATUS_MSG_PATH);
+                Some(mid) => {
+                    // Try to edit existing status message
+                    match channel.edit_message(http, mid, |m| m.content(content.clone())).await {
+                        Ok(_) => { /* Success */ }
+                        Err(e) => {
+                            eprintln!("Failed to edit status message: {e:?}, clearing state");
+                            status_message_id = None;
+                            let _ = fs::remove_file(STATUS_MSG_PATH);
+                        }
                     }
                 }
                 None => {
-                    // Unpin all previous messages from self
+                    // Clean up all pinned messages from bot before sending new one
                     if let Ok(bot_user) = http.get_current_user().await {
                         if let Ok(pinned) = channel.pins(http).await {
-                            for msg in pinned {
+                            for msg in &pinned {
                                 if msg.author.id == bot_user.id {
                                     let _ = msg.unpin(http).await;
                                 }
@@ -249,14 +252,15 @@ pub async fn start_status_loop(ctx: Context) {
                         }
                     }
 
+                    // Send new message and pin it
                     match channel.send_message(http, |m| m.content(content.clone())).await {
                         Ok(msg) => {
-                            status_message_id = Some(msg.id);
-                            save_status_message_id(msg.id);
                             let _ = msg.pin(http).await;
+                            save_status_message_id(msg.id);
+                            status_message_id = Some(msg.id);
                         }
                         Err(e) => {
-                            eprintln!("Failed to send new status message: {:?}", e);
+                            eprintln!("Failed to send status message: {e:?}");
                         }
                     }
                 }
