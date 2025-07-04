@@ -199,16 +199,13 @@ pub async fn start_status_loop(ctx: Context) {
 
         // Validate saved message ID
         if let Some(mid) = status_message_id {
-            match channel.message(http, mid).await {
-                Ok(_) => { /* Message is valid */ }
-                Err(_) => {
-                    status_message_id = None;
-                    let _ = fs::remove_file(STATUS_MSG_PATH);
-                }
+            if channel.message(http, mid).await.is_err() {
+                status_message_id = None;
+                let _ = fs::remove_file(STATUS_MSG_PATH);
             }
         }
 
-        // Search for an existing pinned status message from the bot
+        // Look for existing pinned status message
         if status_message_id.is_none() {
             if let Ok(bot_user) = http.get_current_user().await {
                 if let Ok(pins) = channel.pins(http).await {
@@ -228,41 +225,52 @@ pub async fn start_status_loop(ctx: Context) {
         loop {
             let content = build_status_message(Some(interval_secs));
 
-            match status_message_id {
-                Some(mid) => {
-                    // Try to edit existing status message
-                    match channel.edit_message(http, mid, |m| m.content(content.clone())).await {
-                        Ok(_) => { /* Success */ }
-                        Err(e) => {
-                            eprintln!("Failed to edit status message: {e:?}, clearing state");
-                            status_message_id = None;
-                            let _ = fs::remove_file(STATUS_MSG_PATH);
+            // Try to edit existing message
+            if let Some(mid) = status_message_id {
+                match channel.edit_message(http, mid, |m| m.content(content.clone())).await {
+                    Ok(_) => {
+                        sleep(Duration::from_secs(interval_secs)).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to edit status message: {e:?}, clearing state");
+                        status_message_id = None;
+                        let _ = fs::remove_file(STATUS_MSG_PATH);
+                    }
+                }
+            }
+
+            // Clean up all bot messages before creating a new one
+            if let Ok(bot_user) = http.get_current_user().await {
+                // Unpin & delete pinned bot messages
+                if let Ok(pins) = channel.pins(http).await {
+                    for msg in &pins {
+                        if msg.author.id == bot_user.id {
+                            let _ = msg.unpin(http).await;
+                            let _ = msg.delete(http).await;
                         }
                     }
                 }
-                None => {
-                    // Clean up all pinned messages from bot before sending new one
-                    if let Ok(bot_user) = http.get_current_user().await {
-                        if let Ok(pinned) = channel.pins(http).await {
-                            for msg in &pinned {
-                                if msg.author.id == bot_user.id {
-                                    let _ = msg.unpin(http).await;
-                                }
-                            }
-                        }
-                    }
 
-                    // Send new message and pin it
-                    match channel.send_message(http, |m| m.content(content.clone())).await {
-                        Ok(msg) => {
-                            let _ = msg.pin(http).await;
-                            save_status_message_id(msg.id);
-                            status_message_id = Some(msg.id);
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to send status message: {e:?}");
+                // Also delete recent bot messages (un-pinned)
+                if let Ok(messages) = channel.messages(http, |r| r.limit(50)).await {
+                    for msg in &messages {
+                        if msg.author.id == bot_user.id {
+                            let _ = msg.delete(http).await;
                         }
                     }
+                }
+            }
+
+            // Send new message
+            match channel.send_message(http, |m| m.content(content.clone())).await {
+                Ok(msg) => {
+                    let _ = msg.pin(http).await;
+                    save_status_message_id(msg.id);
+                    status_message_id = Some(msg.id);
+                }
+                Err(e) => {
+                    eprintln!("Failed to send new status message: {e:?}");
                 }
             }
 
