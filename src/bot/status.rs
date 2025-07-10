@@ -17,7 +17,6 @@ use sysinfo::{CpuExt, DiskExt, System, SystemExt, ComponentExt};
 use chrono::Local;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-
 const STATUS_MSG_PATH: &str = "status_message_id.txt";
 static STATUS_LOOP_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -233,7 +232,24 @@ pub async fn start_status_loop(ctx: Context) {
                         continue;
                     }
                     Err(e) => {
-                        eprintln!("Failed to edit status message: {e:?}, clearing state");
+                        eprintln!("Failed to edit status message: {e:?}");
+
+                        // Check if it's a transient server error
+                        if let serenity::Error::Http(http_err) = &e {
+                            if let serenity::http::HttpError::UnsuccessfulRequest(resp) = &**http_err {
+                                if resp.status_code.as_u16() >= 500 {
+                                    eprintln!(
+                                        "Discord server error ({}), keeping message id and retrying next loop",
+                                        resp.status_code
+                                    );
+                                    sleep(Duration::from_secs(interval_secs)).await;
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // Otherwise: treat as invalid and clear state
+                        eprintln!("Clearing status message state");
                         status_message_id = None;
                         let _ = fs::remove_file(STATUS_MSG_PATH);
                     }
